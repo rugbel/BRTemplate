@@ -1,0 +1,14 @@
+Package: BRTemplate
+Type: Package
+Title: Template for BR Estimation for Independent Data Models 
+Version: 0.1.0
+Author: Ruggero Bellio
+Maintainer: The package maintainer <ruggero.bellio@uniud.it>
+Description: A set of functions to apply Bias-Reduced Estimation to a general model for independent data. A TMB template providing the log likelihood of the model is required, plus a function that simulates a data set from the model. 
+Depends: R (>= 3.4.0), TMB (>= 1.7.11)
+Imports: parallel, nleqslv
+Suggests: knitr, rmarkdown, brglm2
+License: GPL-3
+Encoding: UTF-8
+RoxygenNote: 6.1.1
+VignetteBuilder: knitr

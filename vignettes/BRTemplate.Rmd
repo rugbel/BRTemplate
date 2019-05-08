@@ -1,0 +1,128 @@
+---
+title:  Performing BR estimation by 'BRTemplate'
+author: Ruggero Bellio
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+##Some theory and computational strategy
+Let us assume that we have $y_i \sim f(y_i;\theta)$, $i=1,\ldots,n$, independent,  possibly depending on some covariates $x_i$. 
+
+
+The starting point is the estimating equation for  BR estimation of the $d$-dimensional parameter $\theta$
+$$
+S(\theta) = \ell_\theta(\theta) + a(\theta) \, .
+$$
+Here we target only the $A^{(E)}$ version.
+Some simplifications occuring due to the indendence assumption, so that 
+$$
+a_{j}(\theta) = -0.5 \, {\rm tr}\left[
+\left\{  {\rm E}_{\theta}\left( \sum_{i=1}^n s_{i} \, s_{i}^{\top}\right) \right\}^{-1}\, 
+ \, {\rm E}_{\theta}\left\{ \sum_{i=1}^n s_{i}^{(j)} \, (h_{i}-s_{i} \, s_{i}^{\top})\right\}  \right] \, ,\hspace{0.5cm}
+ j=1,\ldots,d
+$$
+where $s_{i}=s_{i}(\theta)$ is the score function for the $i$-th observation, so that $\ell_\theta(\theta)=\sum_i s_i(\theta)$, and 
+$h_i=h_i(\theta)$ is the 
+observed information matrix for the  $i$-th observation, so that $j(\theta)=\sum_i h_i(\theta)$;
+furthermore, $s_{i}^{(j)}$ is the $j$-th component of $s_i$. 
+
+
+i) There are two possible routes for computing $a_j(\theta)$. The first one is the **empirical approximation**, where we drop the $E(\cdot)$ operators in the above equation. The second one, more important, is to use a **Monte Carlo (MC)
+approximation**, which entails 
+$$
+a^*_{j}(\theta) = -0.5 \, {\rm tr}\left[
+\left\{ \dfrac{1}{R} \, \sum_{r=1}^R \left( \sum_{i=1}^n s^*_{ir} \, s_{ir}^{*\top} \right) \right\}^{-1}\, 
+ \, \left\{\dfrac{1}{R}  \sum_{r=1}^R\left( \sum_{i=1}^n s^{(j)*}_{ir} \, (h^*_{ir}-s^*_{ir} \, s_{ir}^{*\top})\right)  \right\}  \right] \, ,\hspace{0.5cm}
+ j=1,\ldots,d
+$$
+Here we have generated $R$ independent datasets of size $n$ from the model, and the $*$ denotes quantities computed on the simulated samples. Note that once we merge all the simulated samples into a single
+data set with $R \times n$ rows, the same code can be used for both the empirical and the Monte Carlo
+approximation. 
+
+ii) The main idea is to employ the $\texttt{TMB}$ package 
+for Automatic Differentian (AD) to compute the individual scores and observed information matrices. 
+This is very fast for the empirical approximation, but not so demanding for the MC approximation
+either. In fact, $R$ as small as $500$ usually suffices for a reasonable accuracy in many cases.
+
+
+iii) Parallel computing is essential, since the AD computation is repeated for every single 
+individual observation. 
+
+
+##Usage of BRTemplate 
+In what follows, the `BRTemplate` for computing the adjustment in broad generality is illustrated.
+
+
+Let us see the template at work for probit regression, using an example from ```brglm2```:
+```{r brglm2}
+library(brglm2)
+data("endometrial", package = "brglm2")
+endometrialML <- glm(HG ~ NV + PI + EH, data = endometrial,family = binomial("probit"))
+endometrialBR_mean <- update(endometrialML, method = "brglmFit", type = "AS_mean")
+```
+
+
+The starting point is the  model definition using ```TMB```. We first need to write a ```C++```
+template defining the model, according to the ```TMB``` requirements. The package contains  two 
+files of this kind  
+for logit and probit regression. We copy the file for probit regression to the working directory, then
+we call the ```get_AD``` routine that creates the AD object.
+
+```{r AD, message = FALSE, warning = FALSE, results = FALSE}
+library(BRTemplate)
+X <- model.matrix(endometrialML)
+y <- as.vector(endometrial$HG)
+parain <- rep(0, ncol(X))
+file.name <- "Probit.cpp"
+file.remote <- system.file("TMB", file.name, package = "BRTemplate")
+file.copy(file.remote, getwd())
+obj <- get_AD(file.name, X, y, parain)
+```
+The next step is to define a function that generates a sample for probit regression. That's very
+simple, and actually the package has already such function named ```genProbit```:
+```{r probit gen}
+print(genProbit)
+```
+
+
+Now we are ready to get the BR estimates for probit regression. Here we first use quasi Newton-Raphson, and the empirical
+version,  and we employ the ```nleqslv``` library for solving the estimating equations.
+Note that quasi Newton-Raphson is invoked by the ```observed```
+argument, not from the ```method``` one, which instead pertains to ```nleqslv```.
+
+```{r est, results = FALSE}
+library(nleqslv)
+library(parallel)
+nc <- detectCores()
+br.emp <- nleqslv(rep(0,ncol(X)), gsolv, ADobj = obj, dll="Probit", datagen=genProbit,
+                ncores = nc, R=0, seed=NULL, y=y, observed=TRUE, X=X, 
+                method="Newton", jac=jsolv)
+```
+The MC version is obtained by changing the ```seed```  and ```R``` arguments:
+```{r est2, cache=TRUE}
+br.MC <- nleqslv(rep(0,ncol(X)), gsolv, ADobj = obj, dll="Probit", datagen=genProbit,
+                ncores = nc, R=500, seed=2018, y=y, observed=TRUE,
+                X=X, method="Newton", jac=jsolv)
+```
+
+We can compare the results:
+```{r res1}
+mat <- cbind(endometrialML$coef, endometrialBR_mean$coef, br.MC$x, br.emp$x)
+colnames(mat) <- c("ML","BR (exact)", "BR (Monte Carlo)",  "BR (empirical)")
+print(mat)
+```
+The MC version is indeed close to the exact one already with $R=500$.
+
+We could also compute the BR estimate based on quasi Fisher-scoring, here done for the empirical
+version; we just need to set ```observed = FALSE```.
+```{r q FS}
+br.emp2 <- nleqslv(rep(0,ncol(X)), gsolv, ADobj = obj, dll="Probit", datagen=genProbit,
+                ncores = nc, R=0, seed=NULL, y=y, observed=FALSE, X=X, 
+                method="Newton", jac=jsolv)
+mat <- cbind(mat, br.emp2$x)
+colnames(mat) <-  c("ML","BR (exact)", "BR (Monte Carlo)",  "BR (empirical, NR)",  "BR (empirical, FS)")
+print(mat)
+```
+
