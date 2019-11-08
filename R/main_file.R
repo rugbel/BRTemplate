@@ -22,7 +22,7 @@ splitdata <- function(X, y, ncores)
   return(listXy)
 }
 
-
+   
 
 
 #' Generate the AD object corresponding to the model of interest
@@ -180,7 +180,7 @@ A_star <- function(para, X, y, ncores, dll)
    }
   J <- cov(out1) * (M-1) / M
   F1 <- try(solve(J))
-  if(is.numeric(F1)) for(j in 1:p) a[j] <- -0.5 * tr(F1 %*% E[j,,])
+  if(is.numeric(F1)) for(j in 1:p) a[j] <- -0.5 * tr(F1 %*% E[,j,])
   return(a)
  }
 
