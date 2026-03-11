@@ -51,7 +51,7 @@ iii) Parallel computing is essential, since the AD computation is repeated for e
 individual observation. 
 
 
-##Usage of BRTemplate 
+## Usage of BRTemplate 
 In what follows, the `BRTemplate` for computing the adjustment in broad generality is illustrated.
 
 
